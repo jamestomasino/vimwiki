@@ -1349,7 +1349,7 @@ endfunction " }}}
 
 function! vimwiki#html#CustomWiki2HTML(path, wikifile, force) "{{{
   call vimwiki#base#mkdir(a:path)
-  echomsg system(VimwikiGet('custom_wiki2html'). ' '.
+  call system(VimwikiGet('custom_wiki2html'). ' '.
       \ a:force. ' '.
       \ VimwikiGet('syntax'). ' '.
       \ strpart(VimwikiGet('ext'), 1). ' '.
