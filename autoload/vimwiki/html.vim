@@ -286,7 +286,7 @@ function! s:tag_strong(value, header_ids) "{{{
     let complete_id = complete_id[:-2]
   endif
   let complete_id .= '-'.id
-  return '<div id="'.s:safe_html_anchor(complete_id).'"></div><strong id="'
+  return '<span id="'.s:safe_html_anchor(complete_id).'"></span><strong id="'
         \ .id.'">'.text.'</strong>'
 endfunction "}}}
 
@@ -390,7 +390,6 @@ function! s:tag_wikiincl(value) "{{{
 
     let url = escape(url, '#')
     let line = vimwiki#html#linkify_image(url, descr, verbatim_str)
-    return line
   endif
   return line
 endfunction "}}}
@@ -402,7 +401,7 @@ function! s:tag_wikilink(value) "{{{
   " [[fileurl.ext|descr]]     -> <a href="fileurl.ext">descr</a>
   " [[dirurl/|descr]]         -> <a href="dirurl/index.html">descr</a>
   " [[url#a1#a2]]             -> <a href="url.html#a1-a2">url#a1#a2</a>
-  " [[#a1#a2]]                -> <a href="file.html#a1-a2">#a1#a2</a>
+  " [[#a1#a2]]                -> <a href="#a1-a2">#a1#a2</a>
   let str = a:value
   let url = matchstr(str, g:vimwiki_rxWikiLinkMatchUrl)
   let descr = matchstr(str, g:vimwiki_rxWikiLinkMatchDescr)
@@ -1329,11 +1328,6 @@ endfunction " }}}
 
 function! vimwiki#html#Wiki2HTML(path_html, wikifile) "{{{
 
-  if VimwikiGet('auto_toc') >= 1
-    call vimwiki#base#table_of_contents(0)
-    noautocmd update
-  endif
-
   let starttime = reltime()  " start the clock
 
   let done = 0
@@ -1391,7 +1385,7 @@ function! vimwiki#html#Wiki2HTML(path_html, wikifile) "{{{
     endif
 
     " prepare regexps for lists
-    let s:bullets = '[*•-]'
+    let s:bullets = '[*-]'
     let s:numbers =
       \'\C\%(#\|\d\+)\|\d\+\.\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)'
 
@@ -1534,6 +1528,7 @@ function! vimwiki#html#WikiAll2HTML(path_html) "{{{
   call VimwikiSet('invsubdir', current_invsubdir)
 
   call s:create_default_CSS(path_html)
+  echomsg 'HTML exported to '.path_html
   echomsg 'Done!'
 
   let &more = setting_more

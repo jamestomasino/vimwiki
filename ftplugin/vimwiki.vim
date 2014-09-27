@@ -48,7 +48,7 @@ let g:vimwiki_media_bold_match = '''''''__Text__'''''''
 " ^- looks strange, but is equivalent to "'''__Text__'''" but since we later
 " want to call escape() on this string, we must keep it in single quotes
 
-function! g:complete_wikifiles(findstart, base)
+function! Complete_wikifiles(findstart, base)
   if a:findstart == 1
     let column = col('.')-1
     let line = getline('.')[:column]
@@ -69,16 +69,21 @@ function! g:complete_wikifiles(findstart, base)
 
       if a:base =~# '^wiki\d:'
         let wikinumber = eval(matchstr(a:base, '^wiki\zs\d'))
+        if wikinumber >= len(g:vimwiki_list)
+          return []
+        endif
         let directory = VimwikiGet('path', wikinumber)
         let ext = VimwikiGet('ext', wikinumber)
         let prefix = matchstr(a:base, '^wiki\d:\zs.*')
         let scheme = matchstr(a:base, '^wiki\d:\ze')
       elseif a:base =~# '^diary:'
+        let wikinumber = g:vimwiki_current_idx
         let directory = VimwikiGet('path').'/'.VimwikiGet('diary_rel_path')
         let ext = VimwikiGet('ext')
         let prefix = matchstr(a:base, '^diary:\zs.*')
         let scheme = matchstr(a:base, '^diary:\ze')
-      else
+      else " current wiki
+        let wikinumber = g:vimwiki_current_idx
         let directory = VimwikiGet('path')
         let ext = VimwikiGet('ext')
         let prefix = a:base
@@ -86,12 +91,16 @@ function! g:complete_wikifiles(findstart, base)
       endif
 
       let result = []
+      if wikinumber == g:vimwiki_current_idx
+        let cwd = vimwiki#u#wikify_path(expand('%:p:h'))
+      else
+        let cwd = vimwiki#u#wikify_path(directory)
+      endif
       for wikifile in split(globpath(directory, '**/*'.ext), '\n')
-        " get the filename relative to the wiki path:
-        let subdir_filename = substitute(fnamemodify(wikifile, ':p:r'),
-              \ '\V'.fnamemodify(directory, ':p'), '', '')
-        if subdir_filename =~ '^'.prefix
-          call add(result, scheme . subdir_filename)
+        let wikifile = vimwiki#u#wikify_path(fnamemodify(wikifile, ':r'))
+        let relative_filename = vimwiki#u#relpath(cwd, wikifile)
+        if relative_filename =~ '^'.vimwiki#u#escape(prefix)
+          call add(result, scheme . relative_filename)
         endif
       endfor
       return result
@@ -100,77 +109,25 @@ function! g:complete_wikifiles(findstart, base)
       " we look for anchors in the given wikifile
 
       let segments = split(a:base, '#', 1)
-      let link_infos = vimwiki#base#resolve_scheme(segments[0].'#', 0)
+      let given_wikifile = segments[0]=='' ? expand('%:t:r') : segments[0]
+      let link_infos = vimwiki#base#resolve_scheme(given_wikifile.'#', 0)
       let wikifile = link_infos[6]
       let syntax = VimwikiGet('syntax', link_infos[0])
-      let rxheader = g:vimwiki_{syntax}_header_search
-      let rxbold = g:vimwiki_{syntax}_bold_search
-      if !filereadable(wikifile)
-        return []
-      endif
-      let filecontent = readfile(wikifile)
-      let anchor_level = ['', '', '', '', '', '', '']
-      let anchors = []
-
-      for line in filecontent
-
-        " collect headers
-        let h_match = matchlist(line, rxheader)
-        if !empty(h_match)
-          let header = vimwiki#u#trim(h_match[2])
-          let level = len(h_match[1])
-          let anchor_level[level-1] = header
-          for l in range(level, 6)
-            let anchor_level[l] = ''
-          endfor
-          call add(anchors, header)
-          let complete_anchor = ''
-          for l in range(level-1)
-            if anchor_level[l] != ''
-              let complete_anchor .= anchor_level[l].'#'
-            endif
-          endfor
-          let complete_anchor .= header
-          call add(anchors, complete_anchor)
-        endif
-
-        " collect bold text (there can be several in one line)
-        let bold_count = 0
-        let bold_end = 0
-        while 1
-          let bold_text = matchstr(line, rxbold, bold_end, bold_count)
-          let bold_end = matchend(line, rxbold, bold_end, bold_count) + 1
-          if bold_text == ""
-            break
-          endif
-          let anchor_level[6] = bold_text
-          call add(anchors, bold_text)
-          let complete_anchor = ''
-          for l in range(6)
-            if anchor_level[l] != ''
-              let complete_anchor .= anchor_level[l].'#'
-            endif
-          endfor
-          let complete_anchor .= bold_text
-          call add(anchors, complete_anchor)
-          let bold_count += 1
-        endwhile
-
-      endfor
+      let anchors = vimwiki#base#get_anchors(wikifile, syntax)
 
       let filtered_anchors = []
       let given_anchor = join(segments[1:], '#')
       for anchor in anchors
-        if anchor =~# '^'.given_anchor
+        if anchor =~# '^'.vimwiki#u#escape(given_anchor)
           call add(filtered_anchors, segments[0].'#'.anchor)
         endif
       endfor
-
       return filtered_anchors
+
     endif
   endif
 endfunction
-setlocal omnifunc=g:complete_wikifiles
+setlocal omnifunc=Complete_wikifiles
 " omnicomplete }}}
 
 " MISC }}}
@@ -289,7 +246,7 @@ command! -buffer Vimwiki2HTML
       \ let res = vimwiki#html#Wiki2HTML(expand(VimwikiGet('path_html')),
       \                             expand('%'))
       \<bar>
-      \ if res != '' | echo 'Vimwiki: HTML conversion is done.' | endif
+      \ if res != '' | echo 'Vimwiki: HTML conversion is done, output: '.expand(VimwikiGet('path_html')) | endif
 command! -buffer Vimwiki2HTMLBrowse
       \ silent noautocmd w <bar>
       \ call vimwiki#base#system_open_link(vimwiki#html#Wiki2HTML(
@@ -562,23 +519,21 @@ endif
 noremap <silent><script><buffer>
     \ <Plug>VimwikiRemoveCBInList :VimwikiRemoveCBInList<CR>
 
-for s:k in keys(g:vimwiki_bullet_types)
-  let s:char = (s:k == '•' ? '.' : s:k)
-
-  if !hasmapto(':VimwikiChangeSymbolTo '.s:k.'<CR>')
-    exe 'noremap <silent><buffer> gl'.s:char.' :VimwikiChangeSymbolTo '.s:k.'<CR>'
+for s:char in keys(g:vimwiki_bullet_types)
+  if !hasmapto(':VimwikiChangeSymbolTo '.s:char.'<CR>')
+    exe 'noremap <silent><buffer> gl'.s:char.' :VimwikiChangeSymbolTo '.s:char.'<CR>'
   endif
-  if !hasmapto(':VimwikiChangeSymbolInListTo '.s:k.'<CR>')
-    exe 'noremap <silent><buffer> gL'.s:char.' :VimwikiChangeSymbolInListTo '.s:k.'<CR>'
+  if !hasmapto(':VimwikiChangeSymbolInListTo '.s:char.'<CR>')
+    exe 'noremap <silent><buffer> gL'.s:char.' :VimwikiChangeSymbolInListTo '.s:char.'<CR>'
   endif
-
 endfor
-for s:k in g:vimwiki_number_types
-  if !hasmapto(':VimwikiChangeSymbolTo '.s:k.'<CR>')
-    exe 'noremap <silent><buffer> gl'.s:k[0].' :VimwikiChangeSymbolTo '.s:k.'<CR>'
+
+for s:typ in g:vimwiki_number_types
+  if !hasmapto(':VimwikiChangeSymbolTo '.s:typ.'<CR>')
+    exe 'noremap <silent><buffer> gl'.s:typ[0].' :VimwikiChangeSymbolTo '.s:typ.'<CR>'
   endif
-  if !hasmapto(':VimwikiChangeSymbolInListTo '.s:k.'<CR>')
-    exe 'noremap <silent><buffer> gL'.s:k[0].' :VimwikiChangeSymbolInListTo '.s:k.'<CR>'
+  if !hasmapto(':VimwikiChangeSymbolInListTo '.s:typ.'<CR>')
+    exe 'noremap <silent><buffer> gL'.s:typ[0].' :VimwikiChangeSymbolInListTo '.s:typ.'<CR>'
   endif
 endfor
 
@@ -671,7 +626,7 @@ nnoremap <silent><buffer> <Plug>VimwikiRemoveHeaderLevel :
 
 " AUTOCOMMANDS {{{
 function! s:toc_html()
-  if VimwikiGet('auto_toc') >= 2 && VimwikiGet('auto_export') == 0
+  if VimwikiGet('auto_toc')
     call vimwiki#base#table_of_contents(0)
   endif
   if VimwikiGet('auto_export')
@@ -680,7 +635,7 @@ function! s:toc_html()
   endif
 endfunction
 
-if VimwikiGet('auto_export') || VimwikiGet('auto_toc') >= 2
+if VimwikiGet('auto_export') || VimwikiGet('auto_toc')
   augroup vimwiki
     au BufWritePost <buffer> call s:toc_html()
   augroup END

@@ -328,10 +328,6 @@ endfunction " }}}
 function! vimwiki#base#resolve_scheme(lnk, as_html) " {{{ Resolve scheme
   let lnk = a:lnk
 
-  " a link starting with # means current file with an anchor
-  if lnk =~ '^#'
-    let lnk = expand('%:t:r').lnk
-  endif
 
   " if link is schemeless add wikiN: scheme
   let is_schemeless = lnk !~ g:vimwiki_rxSchemeUrl
@@ -420,6 +416,7 @@ function! vimwiki#base#resolve_scheme(lnk, as_html) " {{{ Resolve scheme
       let path = VimwikiGet('path')
       let ext = VimwikiGet('ext')
     endif
+    let idx = g:vimwiki_current_idx
     let subdir = VimwikiGet('diary_rel_path')
   elseif scheme =~ 'local'
     " revisiting the 'lcd'-bug ...
@@ -457,6 +454,14 @@ function! vimwiki#base#resolve_scheme(lnk, as_html) " {{{ Resolve scheme
     let url = path.subdir.lnk.ext
   endif
 
+  " lnk and url should be '' if the given wiki link has the form [[#anchor]].
+  " We cannot do lnk = expand('%:t:r') or so, because this function is called
+  " from vimwiki#html#WikiAll2HTML() for many files, so expand('%:t:r')
+  " doesn't give the currently processed file
+  if lnk == ''
+    let url = ''
+  endif
+
   " result
   return [idx, scheme, path, subdir, lnk, ext, url, anchor]
 endfunction "}}}
@@ -466,7 +471,18 @@ function! vimwiki#base#system_open_link(url) "{{{
   " handlers
   function! s:win32_handler(url)
     "http://vim.wikia.com/wiki/Opening_current_Vim_file_in_your_Windows_browser
-    execute 'silent ! start "Title" /B ' . shellescape(a:url, 1)
+    "disable 'shellslash', otherwise the url will be enclosed in single quotes,
+    "which is problematic
+    "see https://github.com/vimwiki/vimwiki/issues/54#issuecomment-48011289
+    if exists('+shellslash')
+      let old_ssl = &shellslash
+      set noshellslash
+      let url = shellescape(a:url, 1)
+      let &shellslash = old_ssl
+    else
+      let url = shellescape(a:url, 1)
+    endif
+    execute 'silent ! start "Title" /B ' . url
   endfunction
   function! s:macunix_handler(url)
     execute '!open ' . shellescape(a:url, 1)
@@ -493,6 +509,12 @@ endfunction "}}}
 function! vimwiki#base#open_link(cmd, link, ...) "{{{
   let [idx, scheme, path, subdir, lnk, ext, url, anchor] =
         \ vimwiki#base#resolve_scheme(a:link, 0)
+
+  " wikilinks of the form [[#anchor]]
+  if url == '' && anchor != ''
+    let lnk = expand('%:t:r')
+    let url = path.subdir.lnk.ext
+  endif
 
   if url == ''
     if g:vimwiki_debug
@@ -663,6 +685,65 @@ function! vimwiki#base#get_links(pat) "{{{ return string-list for files
   return globlinks
 endfunction "}}}
 
+function! vimwiki#base#get_anchors(filename, syntax) "{{{
+  if !filereadable(a:filename)
+    return []
+  endif
+
+  let rxheader = g:vimwiki_{a:syntax}_header_search
+  let rxbold = g:vimwiki_{a:syntax}_bold_search
+
+  let anchor_level = ['', '', '', '', '', '', '']
+  let anchors = []
+  for line in readfile(a:filename)
+
+    " collect headers
+    let h_match = matchlist(line, rxheader)
+    if !empty(h_match)
+      let header = vimwiki#u#trim(h_match[2])
+      let level = len(h_match[1])
+      let anchor_level[level-1] = header
+      for l in range(level, 6)
+        let anchor_level[l] = ''
+      endfor
+      call add(anchors, header)
+      let complete_anchor = ''
+      for l in range(level-1)
+        if anchor_level[l] != ''
+          let complete_anchor .= anchor_level[l].'#'
+        endif
+      endfor
+      let complete_anchor .= header
+      call add(anchors, complete_anchor)
+    endif
+
+    " collect bold text (there can be several in one line)
+    let bold_count = 0
+    let bold_end = 0
+    while 1
+      let bold_text = matchstr(line, rxbold, bold_end, bold_count)
+      let bold_end = matchend(line, rxbold, bold_end, bold_count) + 1
+      if bold_text == ""
+        break
+      endif
+      call add(anchors, bold_text)
+      let anchor_level[6] = bold_text
+      let complete_anchor = ''
+      for l in range(6)
+        if anchor_level[l] != ''
+          let complete_anchor .= anchor_level[l].'#'
+        endif
+      endfor
+      let complete_anchor .= bold_text
+      call add(anchors, complete_anchor)
+      let bold_count += 1
+    endwhile
+
+  endfor
+
+  return anchors
+endfunction "}}}
+
 " s:jump_to_anchor
 function! s:jump_to_anchor(anchor) "{{{
   let oldpos = getpos('.')
@@ -679,7 +760,7 @@ function! s:jump_to_anchor(anchor) "{{{
     let anchor_bold = substitute(g:vimwiki_{VimwikiGet('syntax')}_bold_match,
           \ '__Text__', "\\='".segment."'", '')
 
-    if !search(anchor_header, 'W') && !search(anchor_bold, 'W')
+    if !search(anchor_header, 'Wc') && !search(anchor_bold, 'Wc')
       call setpos('.', oldpos)
       break
     endif
