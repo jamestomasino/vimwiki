@@ -266,7 +266,7 @@ function! vimwiki#diary#goto_diary_index(wnum) "{{{
   endif
 
   call vimwiki#base#validate_wiki_options(idx)
-  call vimwiki#base#edit_file('e', s:diary_index(idx))
+  call vimwiki#base#edit_file('e', s:diary_index(idx), '')
   call vimwiki#base#setup_buffer_state(idx)
 endfunction "}}}
 
@@ -341,8 +341,8 @@ function! vimwiki#diary#calendar_action(day, month, year, week, dir) "{{{
     endif
   endif
 
-  " Create diary note for a selected date in default wiki.
-  call vimwiki#diary#make_note(1, 0, link)
+  " XXX: Well, +1 is for inconsistent index basing...
+  call vimwiki#diary#make_note(g:vimwiki_current_idx+1, 0, link)
 endfunction "}}}
 
 " Sign function.

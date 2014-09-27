@@ -4,10 +4,10 @@
 " Home: http://code.google.com/p/vimwiki/
 " GetLatestVimScripts: 2226 1 :AutoInstall: vimwiki
 
-if exists("loaded_vimwiki") || &cp
+if exists("g:loaded_vimwiki") || &cp
   finish
 endif
-let loaded_vimwiki = 1
+let g:loaded_vimwiki = 1
 
 let s:old_cpo = &cpo
 set cpo&vim
@@ -208,6 +208,9 @@ function! s:setup_buffer_enter() "{{{
   elseif g:vimwiki_folding == 'syntax'
     setlocal fdm=syntax
     setlocal foldtext=VimwikiFoldText()
+  else
+    setlocal fdm=manual
+    exe "normal zE"
   endif
 
   " And conceal level too.
@@ -310,7 +313,7 @@ function! VimwikiSet(option, value, ...) "{{{
 
 endfunction "}}}
 
-" Clear option for current wiki or if third parameter exists for
+" Clear option for current wiki or if second parameter exists for
 "   wiki with a given index.
 " Currently, only works if option was previously saved in the buffer local
 "   dictionary, that acts as a cache.
@@ -358,6 +361,7 @@ let s:vimwiki_defaults.template_ext = ''
 
 let s:vimwiki_defaults.nested_syntaxes = {}
 let s:vimwiki_defaults.auto_export = 0
+let s:vimwiki_defaults.auto_toc = 0
 " is wiki temporary -- was added to g:vimwiki_list by opening arbitrary wiki
 " file.
 let s:vimwiki_defaults.temp = 0
@@ -380,7 +384,6 @@ let s:vimwiki_defaults.list_margin = -1
 
 " DEFAULT options {{{
 call s:default('list', [s:vimwiki_defaults])
-call s:default('auto_checkbox', 1)
 call s:default('use_mouse', 0)
 call s:default('folding', '')
 call s:default('menu', 'Vimwiki')
@@ -399,6 +402,7 @@ call s:default('dir_link', '')
 call s:default('valid_html_tags', 'b,i,s,u,sub,sup,kbd,br,hr,div,center,strong,em')
 call s:default('user_htmls', '')
 call s:default('autowriteall', 1)
+call s:default('toc_header', 'Contents')
 
 call s:default('html_header_numbering', 0)
 call s:default('html_header_numbering_sym', '')
@@ -426,20 +430,19 @@ call s:default('web_schemes1', 'http,https,file,ftp,gopher,telnet,nntp,ldap,'.
         \ 'rsync,imap,pop,irc,ircs,cvs,svn,svn+ssh,git,ssh,fish,sftp')
 call s:default('web_schemes2', 'mailto,news,xmpp,sip,sips,doi,urn,tel')
 
-let rxSchemes = '\%('. 
+let s:rxSchemes = '\%('.
       \ join(split(g:vimwiki_schemes, '\s*,\s*'), '\|').'\|'. 
       \ join(split(g:vimwiki_web_schemes1, '\s*,\s*'), '\|').'\|'. 
       \ join(split(g:vimwiki_web_schemes2, '\s*,\s*'), '\|').
       \ '\)'
 
-call s:default('rxSchemeUrl', rxSchemes.':.*')
-call s:default('rxSchemeUrlMatchScheme', '\zs'.rxSchemes.'\ze:.*')
-call s:default('rxSchemeUrlMatchUrl', rxSchemes.':\zs.*\ze')
+call s:default('rxSchemeUrl', s:rxSchemes.':.*')
+call s:default('rxSchemeUrlMatchScheme', '\zs'.s:rxSchemes.'\ze:.*')
+call s:default('rxSchemeUrlMatchUrl', s:rxSchemes.':\zs.*\ze')
 " scheme regexes }}}
 "}}}
 
 " AUTOCOMMANDS for all known wiki extensions {{{
-let extensions = vimwiki#base#get_known_extensions()
 
 augroup filetypedetect
   " clear FlexWiki's stuff
@@ -448,17 +451,17 @@ augroup end
 
 augroup vimwiki
   autocmd!
-  for ext in extensions
-    exe 'autocmd BufEnter *'.ext.' call s:setup_buffer_reenter()'
-    exe 'autocmd BufWinEnter *'.ext.' call s:setup_buffer_enter()'
-    exe 'autocmd BufLeave,BufHidden *'.ext.' call s:setup_buffer_leave()'
-    exe 'autocmd BufNewFile,BufRead, *'.ext.' call s:setup_filetype()'
-    exe 'autocmd ColorScheme *'.ext.' call s:setup_cleared_syntax()'
+  for s:ext in vimwiki#base#get_known_extensions()
+    exe 'autocmd BufEnter *'.s:ext.' call s:setup_buffer_reenter()'
+    exe 'autocmd BufWinEnter *'.s:ext.' call s:setup_buffer_enter()'
+    exe 'autocmd BufLeave,BufHidden *'.s:ext.' call s:setup_buffer_leave()'
+    exe 'autocmd BufNewFile,BufRead, *'.s:ext.' call s:setup_filetype()'
+    exe 'autocmd ColorScheme *'.s:ext.' call s:setup_cleared_syntax()'
     " Format tables when exit from insert mode. Do not use textwidth to
     " autowrap tables.
     if g:vimwiki_table_auto_fmt
-      exe 'autocmd InsertLeave *'.ext.' call vimwiki#tbl#format(line("."))'
-      exe 'autocmd InsertEnter *'.ext.' call vimwiki#tbl#reset_tw(line("."))'
+      exe 'autocmd InsertLeave *'.s:ext.' call vimwiki#tbl#format(line("."))'
+      exe 'autocmd InsertEnter *'.s:ext.' call vimwiki#tbl#reset_tw(line("."))'
     endif
   endfor
 augroup END
